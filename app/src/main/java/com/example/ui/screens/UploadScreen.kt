@@ -47,7 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-fun saveDummyVideoToGallery(context: Context, filename: String) {
+fun saveDummyVideoToGallery(context: Context, filename: String, sourceUri: Uri? = null) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val resolver = context.contentResolver
         val contentValues = ContentValues().apply {
@@ -59,7 +59,13 @@ fun saveDummyVideoToGallery(context: Context, filename: String) {
             val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
             if (uri != null) {
                 resolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(byteArrayOf(0))
+                    if (sourceUri != null) {
+                        resolver.openInputStream(sourceUri)?.use { inputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    } else {
+                        outputStream.write(byteArrayOf(0))
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -88,6 +94,9 @@ fun UploadScreen(
     // Cutting options
     val durationOptions = listOf(60, 90, 120, 150)
     var selectedDuration by remember { mutableStateOf(60) }
+    
+    val aspectOptions = listOf("9:16 (Reel)", "16:9 (YT)", "1:1 (Insta)")
+    var selectedAspect by remember { mutableStateOf(aspectOptions[0]) }
     
     // Playback and UI state
     var previewSeekSeconds by remember { mutableStateOf<Int?>(null) }
@@ -227,12 +236,21 @@ fun UploadScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 // Video Player Preview
-                Box(modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)) {
+                val expectedRatio = when (selectedAspect) {
+                    "9:16 (Reel)" -> 9f / 16f
+                    "16:9 (YT)" -> 16f / 9f
+                    "1:1 (Insta)" -> 1f
+                    else -> 1f
+                }
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(350.dp).background(Color.Black, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
                     VideoPlayer(
                         videoUri = selectedVideoUri.toString(), 
                         seekToSeconds = previewSeekSeconds, 
                         onPositionChanged = { ms -> currentPlaybackPositionMs = ms },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxHeight().aspectRatio(expectedRatio)
                     )
                 }
                 
@@ -247,11 +265,10 @@ fun UploadScreen(
                             Text("Select output aspect ratio:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(16.dp))
                             
-                            val aspectOptions = listOf("9:16 (Reel)", "16:9 (YT)", "1:1 (Insta)")
-                            var selectedAspect by remember { mutableStateOf(aspectOptions[0]) }
+                            val aspectOptionsLocal = listOf("9:16 (Reel)", "16:9 (YT)", "1:1 (Insta)")
 
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                aspectOptions.forEach { aspect ->
+                                aspectOptionsLocal.forEach { aspect ->
                                     val isSelected = selectedAspect == aspect
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
@@ -381,7 +398,7 @@ fun UploadScreen(
                                             scope.launch { 
                                                 snackbarHostState.showSnackbar("Downloading Part ${index + 1}.mp4 to Movies/Reels...") 
                                                 withContext(Dispatchers.IO) {
-                                                    saveDummyVideoToGallery(context, "Reel_Part_${index + 1}.mp4")
+                                                    saveDummyVideoToGallery(context, "Reel_Part_${index + 1}.mp4", selectedVideoUri)
                                                 }
                                                 snackbarHostState.showSnackbar("Saved in Gallery (Movies/Reels)") 
                                             }
@@ -398,7 +415,7 @@ fun UploadScreen(
                                         snackbarHostState.showSnackbar("Saving ${cutPoints.size} reels to target folder...") 
                                         withContext(Dispatchers.IO) {
                                             cutPoints.forEachIndexed { i, _ ->
-                                                saveDummyVideoToGallery(context, "Reel_Part_${i + 1}.mp4")
+                                                saveDummyVideoToGallery(context, "Reel_Part_${i + 1}.mp4", selectedVideoUri)
                                             }
                                         }
                                         snackbarHostState.showSnackbar("All reels saved in Gallery (Movies/Reels)!") 
