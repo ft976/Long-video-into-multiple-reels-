@@ -38,6 +38,35 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.VideoPlayer
 import kotlinx.coroutines.delay
+import android.content.ContentValues
+import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+fun saveDummyVideoToGallery(context: Context, filename: String) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val resolver = context.contentResolver
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Reels")
+        }
+        try {
+            val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { outputStream ->
+                    outputStream.write(byteArrayOf(0))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
 
 enum class ProcessingState {
     IDLE, UPLOADING, COMPLETE
@@ -48,6 +77,7 @@ enum class ProcessingState {
 fun UploadScreen(
     onNavigateToSettings: () -> Unit
 ) {
+    val context = LocalContext.current
     data class ReelPart(val title: String, val startSecs: Int)
 
     var state by remember { mutableStateOf(ProcessingState.IDLE) }
@@ -83,13 +113,16 @@ fun UploadScreen(
                 }
                 
                 // Simulate cutting based on selected duration
-                // Assuming a sample video duration of 600 seconds (10 mins) for demonstration
-                val totalMockVideoLength = 600 
+                // Changing the mock duration to 1 hour (3600 seconds) 
+                val totalMockVideoLength = 3600 
                 val pts = mutableListOf<ReelPart>()
                 var currentSec = 0
                 var partNum = 1
                 while (currentSec < totalMockVideoLength) {
-                    pts.add(ReelPart("Reel $partNum (00:${String.format("%02d", currentSec/60)}:${String.format("%02d", currentSec%60)} to 00:${String.format("%02d", (currentSec+selectedDuration)/60)}:${String.format("%02d", (currentSec+selectedDuration)%60)})", currentSec))
+                    val startStr = String.format("%02d:%02d:%02d", currentSec/3600, (currentSec%3600)/60, currentSec%60)
+                    val endSec = currentSec + selectedDuration
+                    val endStr = String.format("%02d:%02d:%02d", endSec/3600, (endSec%3600)/60, endSec%60)
+                    pts.add(ReelPart("Reel $partNum ($startStr to $endStr)", currentSec))
                     currentSec += selectedDuration
                     partNum++
                 }
@@ -345,7 +378,13 @@ fun UploadScreen(
                                             Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                         IconButton(onClick = {
-                                            scope.launch { snackbarHostState.showSnackbar("Downloading Part ${index + 1}.mp4...") }
+                                            scope.launch { 
+                                                snackbarHostState.showSnackbar("Downloading Part ${index + 1}.mp4 to Movies/Reels...") 
+                                                withContext(Dispatchers.IO) {
+                                                    saveDummyVideoToGallery(context, "Reel_Part_${index + 1}.mp4")
+                                                }
+                                                snackbarHostState.showSnackbar("Saved in Gallery (Movies/Reels)") 
+                                            }
                                         }) {
                                             Icon(Icons.Rounded.Download, contentDescription = "Download", tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
@@ -355,7 +394,15 @@ fun UploadScreen(
                             Spacer(modifier = Modifier.height(24.dp))
                             Button(
                                 onClick = {
-                                    scope.launch { snackbarHostState.showSnackbar("Packaging ${cutPoints.size} reels into ZIP...") }
+                                    scope.launch { 
+                                        snackbarHostState.showSnackbar("Saving ${cutPoints.size} reels to target folder...") 
+                                        withContext(Dispatchers.IO) {
+                                            cutPoints.forEachIndexed { i, _ ->
+                                                saveDummyVideoToGallery(context, "Reel_Part_${i + 1}.mp4")
+                                            }
+                                        }
+                                        snackbarHostState.showSnackbar("All reels saved in Gallery (Movies/Reels)!") 
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(50)
