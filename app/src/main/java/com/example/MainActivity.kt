@@ -41,37 +41,15 @@ class MainActivity : ComponentActivity() {
                     factory = TemplatesViewModelFactory(repository)
                 )
 
-                NavHost(navController = navController, startDestination = "dashboard") {
-                    composable("dashboard") {
-                        DashboardScreen(
-                            viewModel = viewModel,
-                            onNavigateToCreate = { navController.navigate("create") },
-                            onNavigateToUpload = { templateId -> 
-                                navController.navigate("upload/$templateId")
-                            },
-                            onNavigateToSettings = { navController.navigate("settings") }
-                        )
-                    }
+                NavHost(navController = navController, startDestination = "upload") {
                     composable("settings") {
                         SettingsScreen(
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
-                    composable("create") {
-                        CreateTemplateScreen(
-                            viewModel = viewModel,
-                            onNavigateBack = { navController.popBackStack() }
-                        )
-                    }
-                    composable(
-                        route = "upload/{templateId}",
-                        arguments = listOf(navArgument("templateId") { type = NavType.IntType })
-                    ) { backStackEntry ->
-                        val id = backStackEntry.arguments?.getInt("templateId") ?: return@composable
+                    composable("upload") {
                         UploadScreen(
-                            templateId = id,
-                            repository = repository,
-                            onNavigateBack = { navController.popBackStack() }
+                            onNavigateToSettings = { navController.navigate("settings") }
                         )
                     }
                 }
