@@ -19,6 +19,7 @@ import com.example.ui.TemplatesViewModelFactory
 import com.example.ui.screens.CreateTemplateScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.UploadScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
@@ -47,7 +48,13 @@ class MainActivity : ComponentActivity() {
                             onNavigateToCreate = { navController.navigate("create") },
                             onNavigateToUpload = { templateId -> 
                                 navController.navigate("upload/$templateId")
-                            }
+                            },
+                            onNavigateToSettings = { navController.navigate("settings") }
+                        )
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
                     composable("create") {

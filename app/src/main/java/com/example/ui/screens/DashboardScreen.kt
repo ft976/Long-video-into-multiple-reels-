@@ -38,7 +38,8 @@ import com.example.ui.TemplatesViewModel
 fun DashboardScreen(
     viewModel: TemplatesViewModel,
     onNavigateToCreate: () -> Unit,
-    onNavigateToUpload: (Int) -> Unit
+    onNavigateToUpload: (Int) -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     val templates by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -71,7 +72,7 @@ fun DashboardScreen(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier.size(40.dp).padding(end = 8.dp)
                     ) {
-                        IconButton(onClick = { /* TODO */ }) {
+                        IconButton(onClick = onNavigateToSettings) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
                         }
                     }
@@ -81,37 +82,6 @@ fun DashboardScreen(
                     titleContentColor = MaterialTheme.colorScheme.onBackground
                 )
             )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp
-            ) {
-                NavigationBarItem(
-                    selected = true,
-                    onClick = { },
-                    icon = { Icon(Icons.Rounded.Home, contentDescription = "Home") },
-                    label = { Text("Home") }
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = { },
-                    icon = { Icon(Icons.Rounded.DashboardCustomize, contentDescription = "Templates") },
-                    label = { Text("Templates") }
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = { },
-                    icon = { Icon(Icons.Rounded.History, contentDescription = "History") },
-                    label = { Text("History") }
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = { },
-                    icon = { Icon(Icons.Rounded.AccountCircle, contentDescription = "Profile") },
-                    label = { Text("Profile") }
-                )
-            }
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(

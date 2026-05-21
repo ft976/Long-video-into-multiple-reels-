@@ -29,6 +29,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -49,17 +55,32 @@ fun UploadScreen(
     repository: TemplateRepository,
     onNavigateBack: () -> Unit
 ) {
+    data class ReelPart(val title: String, val startSecs: Int)
+
     var template by remember { mutableStateOf<CutTemplate?>(null) }
     var state by remember { mutableStateOf(ProcessingState.IDLE) }
     var progress by remember { mutableFloatStateOf(0f) }
-    var cutPoints by remember { mutableStateOf<List<String>>(emptyList()) }
+    var cutPoints by remember { mutableStateOf<List<ReelPart>>(emptyList()) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var manualMode by remember { mutableStateOf(false) }
+    
+    // Manual cut states
+    var splitPoints by remember { mutableStateOf(listOf<Int>()) }
+    var currentSplitInput by remember { mutableStateOf("") }
+    
+    // Playback and UI state
+    var previewSeekSeconds by remember { mutableStateOf<Int?>(null) }
+    var activeReelIndex by remember { mutableStateOf<Int?>(null) }
+    var currentPlaybackPositionMs by remember { mutableStateOf(0L) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedVideoUri = uri
             state = ProcessingState.IDLE // reset state
+            cutPoints = emptyList()
+            splitPoints = emptyList()
         }
     }
 
@@ -78,14 +99,16 @@ fun UploadScreen(
             }
             ProcessingState.ANALYZING -> {
                 delay(2000)
-                // Simulate smart scene detection algorithm
-                cutPoints = listOf(
-                    "00:00:15 - Fast motion detected",
-                    "00:00:42 - Audio volume spike (Highlight)",
-                    "00:01:20 - Strong scene transition",
-                    "00:02:05 - Visual contrast change",
-                    "00:03:15 - High action detected"
-                )
+                // Simulate smart scene detection algorithm if not provided manually
+                if (cutPoints.isEmpty()) {
+                    cutPoints = listOf(
+                        ReelPart("00:00:15 - Fast motion detected", 15),
+                        ReelPart("00:00:42 - Audio volume spike (Highlight)", 42),
+                        ReelPart("00:01:20 - Strong scene transition", 80),
+                        ReelPart("00:02:05 - Visual contrast change", 125),
+                        ReelPart("00:03:15 - High action detected", 195)
+                    )
+                }
                 state = ProcessingState.COMPLETE
             }
             else -> {}
@@ -93,6 +116,7 @@ fun UploadScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Upload Video") },
@@ -204,7 +228,12 @@ fun UploadScreen(
                     
                     // Video Player Preview
                     Box(modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)) {
-                        VideoPlayer(videoUri = selectedVideoUri.toString(), modifier = Modifier.fillMaxSize())
+                        VideoPlayer(
+                            videoUri = selectedVideoUri.toString(), 
+                            seekToSeconds = previewSeekSeconds, 
+                            onPositionChanged = { ms -> currentPlaybackPositionMs = ms },
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                     
                     Spacer(modifier = Modifier.height(24.dp))
@@ -236,16 +265,75 @@ fun UploadScreen(
 
                         if (manualMode) {
                             Spacer(modifier = Modifier.height(24.dp))
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), modifier = Modifier.fillMaxWidth()) {
                                 Column(modifier = Modifier.padding(16.dp)) {
-                                    Text("Manual Cutting Tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("Manual Split Points", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Video is at: ${String.format("%02d:%02d", (currentPlaybackPositionMs / 1000) / 60, (currentPlaybackPositionMs / 1000) % 60)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Spacer(modifier = Modifier.height(16.dp))
-                                    Text("Video starts at: 00:00:00", style = MaterialTheme.typography.bodyMedium)
-                                    Slider(value = 0f, onValueChange = {}, enabled = false) // Simulated timeline
-                                    Text("Video ends at: --:--:--", style = MaterialTheme.typography.bodyMedium)
+                                    
+                                    Button(
+                                        onClick = {
+                                            val pos = (currentPlaybackPositionMs / 1000).toInt()
+                                            if (pos > 0) {
+                                                splitPoints = (splitPoints + pos).distinct().sorted()
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                                    ) {
+                                        Text("Split at Current Time")
+                                    }
                                     Spacer(modifier = Modifier.height(16.dp))
-                                    Button(onClick = { /* Simulate Save */ }, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Save Segments")
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        OutlinedTextField(
+                                            value = currentSplitInput,
+                                            onValueChange = { currentSplitInput = it },
+                                            label = { Text("Or Split at sec (e.g. 15)") },
+                                            modifier = Modifier.weight(1f),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Button(
+                                            onClick = {
+                                                val pos = currentSplitInput.toIntOrNull()
+                                                if (pos != null && pos > 0) {
+                                                    splitPoints = (splitPoints + pos).distinct().sorted()
+                                                    currentSplitInput = ""
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.height(56.dp)
+                                        ) {
+                                            Text("Add Cut")
+                                        }
+                                    }
+                                    
+                                    if (splitPoints.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text("Cuts at: ${splitPoints.joinToString("s, ")}s", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Button(
+                                        onClick = {
+                                            val manualParts = mutableListOf<ReelPart>()
+                                            var lastPoint = 0
+                                            splitPoints.forEach { point ->
+                                                manualParts.add(ReelPart("Manual Segment ($lastPoint - ${point}s)", lastPoint))
+                                                lastPoint = point
+                                            }
+                                            manualParts.add(ReelPart("Manual Segment ($lastPoint s to End)", lastPoint))
+                                            
+                                            cutPoints = manualParts
+                                            manualMode = false
+                                            state = ProcessingState.COMPLETE
+                                        }, 
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text("PROCESS MANUAL CUTS", fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -315,34 +403,58 @@ fun UploadScreen(
                                 Text("Generated Reels (${t.aspectRatio}, ${t.durationSecs}s):", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 
-                                cutPoints.forEachIndexed { index, point ->
+                                cutPoints.forEachIndexed { index, part ->
+                                    val isActive = activeReelIndex == index
                                     Card(
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background
+                                        ),
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                        border = BorderStroke(1.dp, if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
                                     ) {
                                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                                                Icon(Icons.Rounded.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                            Box(modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)).background(if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Rounded.Movie, contentDescription = null, tint = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer)
                                             }
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text("Reel Part ${index + 1}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                                Text(point, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("Reel Part ${index + 1}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge, color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onBackground)
+                                                Text(part.title, style = MaterialTheme.typography.bodySmall, color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
-                                            IconButton(onClick = { /* play/preview this reel */ }) {
-                                                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play")
+                                            IconButton(onClick = {
+                                                activeReelIndex = index
+                                                previewSeekSeconds = part.startSecs
+                                                scope.launch { snackbarHostState.showSnackbar("Playing Reel ${index + 1} from ${part.startSecs}s") }
+                                            }) {
+                                                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            IconButton(onClick = {
+                                                scope.launch { snackbarHostState.showSnackbar("Downloading Reel ${index + 1}.mp4...") }
+                                            }) {
+                                                Icon(Icons.Rounded.Download, contentDescription = "Download", tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(24.dp))
-                                Button(
-                                    onClick = { onNavigateBack() },
-                                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                                    shape = RoundedCornerShape(50)
-                                ) {
-                                    Text("APPROVE & GENERATE", fontWeight = FontWeight.Bold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    OutlinedButton(
+                                        onClick = { onNavigateBack() },
+                                        modifier = Modifier.weight(1f).height(48.dp)
+                                    ) {
+                                        Text("BACK")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            scope.launch { snackbarHostState.showSnackbar("Packaging ${cutPoints.size} reels into ZIP...") }
+                                        },
+                                        modifier = Modifier.weight(1.5f).height(48.dp),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Icon(Icons.Rounded.FolderZip, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("DOWNLOAD ALL", fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

@@ -12,7 +12,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
 @Composable
-fun VideoPlayer(videoUri: String, modifier: Modifier = Modifier) {
+fun VideoPlayer(
+    videoUri: String, 
+    seekToSeconds: Int? = null, 
+    onPositionChanged: ((Long) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build()
@@ -23,6 +28,22 @@ fun VideoPlayer(videoUri: String, modifier: Modifier = Modifier) {
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
+    }
+
+    androidx.compose.runtime.LaunchedEffect(seekToSeconds) {
+        seekToSeconds?.let {
+            exoPlayer.seekTo(it * 1000L)
+            exoPlayer.playWhenReady = true
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(exoPlayer, onPositionChanged) {
+        if (onPositionChanged != null) {
+            while (true) {
+                onPositionChanged(exoPlayer.currentPosition)
+                kotlinx.coroutines.delay(200)
+            }
+        }
     }
 
     DisposableEffect(Unit) {
